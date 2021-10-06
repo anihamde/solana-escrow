@@ -1,17 +1,17 @@
-use solana_program::{
-    account_info::{next_account_info, AccountInfo},
-    entrypoint::ProgramResult,
-    msg,
-    program::{invoke, invoke_signed},
-    program_error::ProgramError,
-    program_pack::{IsInitialized, Pack},
-    pubkey::Pubkey,
-    sysvar::{rent::Rent, Sysvar},
+use {
+    solana_program::{
+        account_info::{next_account_info, AccountInfo},
+        entrypoint::ProgramResult,
+        msg,
+        program::{invoke, invoke_signed},
+        program_error::ProgramError,
+        pubkey::Pubkey,
+        system_instruction,
+        sysvar::{rent::Rent, Sysvar},
+    },
+    std::convert::TryInto,
 };
-
-use spl_token::state::Account as TokenAccount;
-
-use crate::{error::EscrowError, instruction::EscrowInstruction, state::Escrow, state::Vault};
+use crate::{instruction::EscrowInstruction, state::Escrow, state::Vault};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 pub struct Processor;
@@ -73,13 +73,13 @@ impl Processor {
         let rent_program = next_account_info(account_info_iter)?;
 
         // create x_vault
-        Self::create_pda_vault([x_vault, alice, x_mint, token_program, system_program, rent_program], program_id, b"x_vault")
+        Self::create_pda_vault(accounts, program_id, b"x");
 
         // create y_vault
-        Self::create_pda_vault([y_vault, alice, y_mint, token_program, system_program, rent_program], program_id, b"y_vault")
+        Self::create_pda_vault(accounts, program_id, b"y");
 
         // create escrow
-        Self::create_pda_escrow([escrow, alice, bob, x_vault, y_vault, system_program, rent_program], program_id, amount_a, amount_b)
+        Self::create_pda_escrow(accounts, program_id, amount_a, amount_b);
 
         Ok(())
     }
@@ -87,16 +87,36 @@ impl Processor {
     fn create_pda_vault(
         accounts: &[AccountInfo],
         program_id: &Pubkey,
-        seed: &[u8]
-    ) -> AccountInfo {
+        seed: &[u8],
+    ) -> ProgramResult {
         // get accounts
         let account_info_iter = &mut accounts.iter();
-        let vault = next_account_info(account_info_iter)?;
+        // alice
         let alice = next_account_info(account_info_iter)?;
-        let mint = next_account_info(account_info_iter)?;
+        // bob
+        let _ = next_account_info(account_info_iter)?;
+        // mints
+        let x_mint = next_account_info(account_info_iter)?;
+        let y_mint = next_account_info(account_info_iter)?;
+        // vaults
+        let x_vault = next_account_info(account_info_iter)?;
+        let y_vault = next_account_info(account_info_iter)?;
+        // escrow 
+        let _ = next_account_info(account_info_iter)?;
+
+        // token program
         let token_program = next_account_info(account_info_iter)?;
+        // system program
         let system_program = next_account_info(account_info_iter)?;
+        // rent program
         let rent_program = next_account_info(account_info_iter)?;
+
+        let mut vault = x_vault;
+        let mut mint = x_mint;
+        if seed == b"y" {
+            vault = y_vault;
+            mint = y_mint;
+        }
 
         // rent and space
         let space = Vault::LEN;
@@ -105,23 +125,23 @@ impl Processor {
             .minimum_balance(space)
             .max(1)
             .saturating_sub(vault.lamports());
-        solana_program::program::invoke(
+        invoke(
             &system_instruction::create_account(
                 alice.key, //from_pubkey
                 vault.key, //to_pubkey
                 required_lamports, //lamports
-                space, //space
-                token_program_info.key, // owner
+                space.try_into().unwrap(), //space
+                token_program.key, // owner
             ),
             &[alice.clone(), vault.clone(), system_program.clone()],
         )?;
 
         // get bump, write data to struct
-        let (_, bump) = Pubkey::find_program_address(seed, program_id);
+        let (_, bump) = Pubkey::find_program_address(&[seed], program_id);
         let mut vault_data = Vault::try_from_slice(&vault.data.borrow_mut())?;
-        vault_data.mint = mint.key
-        vault_data.amount = 0
-        vault_data.bump = bump
+        vault_data.mint = *mint.key;
+        vault_data.amount = 0;
+        vault_data.bump = bump;
         vault_data.serialize(&mut *vault.data.borrow_mut())?;
 
         Ok(())
@@ -131,16 +151,28 @@ impl Processor {
         accounts: &[AccountInfo],
         program_id: &Pubkey,
         amount_a: u64,
-        amount_b: u64
-    ) -> AccountInfo {
+        amount_b: u64,
+    ) -> ProgramResult {
         // get accounts
         let account_info_iter = &mut accounts.iter();
-        let escrow = next_account_info(account_info_iter)?;
+        // alice
         let alice = next_account_info(account_info_iter)?;
+        // bob
         let bob = next_account_info(account_info_iter)?;
+        // mints
+        let _ = next_account_info(account_info_iter)?;
+        let _ = next_account_info(account_info_iter)?;
+        // vaults
         let x_vault = next_account_info(account_info_iter)?;
         let y_vault = next_account_info(account_info_iter)?;
-        let system_program = next_account_info(account_info_iter)?;
+        // escrow 
+        let escrow = next_account_info(account_info_iter)?;
+
+        // token program
+        let _ = next_account_info(account_info_iter)?;
+        // system program
+        let _ = next_account_info(account_info_iter)?;
+        // rent program
         let rent_program = next_account_info(account_info_iter)?;
 
         // rent and space
@@ -151,28 +183,28 @@ impl Processor {
             .max(1)
             .saturating_sub(escrow.lamports());
 
-        solana_program::program::invoke(
+        invoke(
             &system_instruction::create_account(
                 alice.key, //from_pubkey
                 escrow.key, //to_pubkey
                 required_lamports, //lamports
-                space, //space
+                space.try_into().unwrap(), //space
                 program_id, // owner
             ),
             &[alice.clone(), escrow.clone()],
         )?;
 
         // get bump, write data to struct
-        let (_, bump) = Pubkey::find_program_address(b"escrow", program_id);
+        let (_, bump) = Pubkey::find_program_address(&[b"escrow"], program_id);
         let mut escrow_data = Escrow::try_from_slice(&escrow.data.borrow_mut())?;
-        escrow.party_a = alice.key;
-        escrow.party_b = bob.key;
-        escrow.size_a = amount_a;
-        escrow.size_b = amount_b;
-        escrow.vault_x = x_vault.key;
-        escrow.vault_y = y_vault.key;
-        escrow.state = 0;
-        escrow.bump = bump;
+        escrow_data.party_a = *alice.key;
+        escrow_data.party_b = *bob.key;
+        escrow_data.size_a = amount_a;
+        escrow_data.size_b = amount_b;
+        escrow_data.vault_x = *x_vault.key;
+        escrow_data.vault_y = *y_vault.key;
+        escrow_data.state = 0;
+        escrow_data.bump = bump;
         escrow_data.serialize(&mut *escrow.data.borrow_mut())?;
 
         Ok(())

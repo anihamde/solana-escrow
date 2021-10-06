@@ -1,17 +1,17 @@
 use solana_program::{
     program_error::ProgramError,
-    program_pack::{IsInitialized, Pack, Sealed},
     pubkey::Pubkey,
 };
+use borsh::{BorshDeserialize, BorshSerialize};
 
-use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
-
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct Vault {
     pub mint: Pubkey,
     pub amount: u64,
     pub bump: u8,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct Escrow {
     pub party_a: Pubkey,
     pub party_b: Pubkey,
