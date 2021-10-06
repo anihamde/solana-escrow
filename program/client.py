@@ -15,7 +15,8 @@ from spl.token.client import Token
 import time
 
 client = Client("https://api.devnet.solana.com")
-ID = "A4vEBwVMoEZ8j4gthtMnm3MLgKtZoSrw7kYGq4KotE2Q"#"A4vEBwVMoEZ8j4gthtMnm3MLgKtZoSrw7kYGq4KotE2Q"
+ID = "9hmJ5wd2sA6WCutptqJzxPHUe3hbTVNivR5TXRtm1iYC"
+#ID = "A4vEBwVMoEZ8j4gthtMnm3MLgKtZoSrw7kYGq4KotE2Q"#"A4vEBwVMoEZ8j4gthtMnm3MLgKtZoSrw7kYGq4KotE2Q"
 program_id=base58.b58decode(ID)
 
 parser = argparse.ArgumentParser(description='Add Questionnaire struct on-chain')
@@ -24,7 +25,7 @@ parser.add_argument('--size_B', dest='size_B', help='get size of B', type=float)
 args = parser.parse_args()
 
 God = Keypair()
-client.request_airdrop(God.public_key, 1000000000000)
+client.request_airdrop(God.public_key, 1000000000)
 
 
 
@@ -40,14 +41,8 @@ Bob = Keypair()
 # X_B = Keypair()
 # Y_B = Keypair()
 
-
-X_mint_kp = Keypair()
-Y_mint_kp = Keypair()
-
-X_token = Token(client, X_mint_kp.public_key, TOKEN_PROGRAM_ID, God)
-Y_token = Token(client, Y_mint_kp.public_key, TOKEN_PROGRAM_ID, God)
-X_token.create_mint(client, God, God.public_key, 9, TOKEN_PROGRAM_ID)
-Y_token.create_mint(client, God, God.public_key, 9, TOKEN_PROGRAM_ID)
+X_mint = Token.create_mint(client, God, God.public_key, 0, TOKEN_PROGRAM_ID)
+Y_mint = Token.create_mint(client, God, God.public_key, 0, TOKEN_PROGRAM_ID)
 
 token_program_pk = TOKEN_PROGRAM_ID
 
@@ -70,7 +65,7 @@ escrow_pk, _ = PublicKey.find_program_address(["escrow"], program_id)
 
 # Account metas
 account_metas = [
-(alice.public_key, False, False),
+(alice.public_key, True, False),
 (bob.public_key, False, False),
 (X_mint.pubkey, False, False),
 (Y_mint.pubkey, False, False),
