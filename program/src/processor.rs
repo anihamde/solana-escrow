@@ -59,6 +59,12 @@ impl Processor {
         // mints
         let x_mint = next_account_info(account_info_iter)?;
         let y_mint = next_account_info(account_info_iter)?;
+        // vaults
+        let x_vault = next_account_info(account_info_iter)?;
+        let y_vault = next_account_info(account_info_iter)?;
+        // escrow 
+        let escrow = next_account_info(account_info_iter)?;
+
         // token program
         let token_program = next_account_info(account_info_iter)?;
         // system program
@@ -67,47 +73,58 @@ impl Processor {
         let rent_program = next_account_info(account_info_iter)?;
 
         // create x_vault
-        let x_vault = Self::create_pda_vault([alice, x_mint, token_program, system_program, rent_program])
+        Self::create_pda_vault([x_vault, alice, x_mint, token_program, system_program, rent_program], program_id, b"x_vault")
 
         // create y_vault
-        let y_vault = Self::create_pda_vault([alice, y_mint, token_program, system_program, rent_program])
+        Self::create_pda_vault([y_vault, alice, y_mint, token_program, system_program, rent_program], program_id, b"y_vault")
 
         // create escrow
-        let escrow = Self::create_pda_escrow([alice, bob, x_vault, y_vault, system_program, rent_program], amount_a, amount_b)
-
-        let rent = &Rent::from_account_info(rent_program)?;
-        if !rent.is_exempt(escrow_account.lamports(), escrow_account.data_len()) {
-            return Err(EscrowError::NotRentExempt.into());
-        }
+        Self::create_pda_escrow([escrow, alice, bob, x_vault, y_vault, system_program, rent_program], program_id, amount_a, amount_b)
 
         Ok(())
     }
 
     fn create_pda_vault(
         accounts: &[AccountInfo],
+        program_id: &Pubkey,
+        seed: &[u8]
     ) -> AccountInfo {
+        // get accounts
         let account_info_iter = &mut accounts.iter();
+        let vault = next_account_info(account_info_iter)?;
         let alice = next_account_info(account_info_iter)?;
         let mint = next_account_info(account_info_iter)?;
         let token_program = next_account_info(account_info_iter)?;
         let system_program = next_account_info(account_info_iter)?;
         let rent_program = next_account_info(account_info_iter)?;
 
-        let (pda, bump) = Pubkey::find_program_address(&[b"vault"], mint.key);
-        let vault: Vault = Vault { mint: mint.key, amount: 0, bump: bump};
-
-        let space = 41;
+        // rent and space
+        let space = Vault::LEN;
+        let rent = &Rent::from_account_info(rent_program)?;
+        let required_lamports = rent
+            .minimum_balance(space)
+            .max(1)
+            .saturating_sub(vault.lamports());
         solana_program::program::invoke(
             &system_instruction::create_account(
                 alice.key, //from_pubkey
-                pda, //to_pubkey
+                vault.key, //to_pubkey
                 required_lamports, //lamports
                 space, //space
                 token_program_info.key, // owner
             ),
-            &[alice.clone(), pda.clone(), system_program.clone()],
+            &[alice.clone(), vault.clone(), system_program.clone()],
         )?;
 
+        // get pda, write data to struct
+        let (_, bump) = Pubkey::find_program_address(seed, program_id);
+        let mut vault_data = Vault::try_from_slice(&vault.data.borrow_mut())?;
+        vault_data.mint = mint.key
+        vault_data.amount = 0
+        vault_data.bump = bump
+        vault_data.serialize(&mut *vault.data.borrow_mut())?;
+
+        Ok(())
     }
 
     fn process_exchange(
