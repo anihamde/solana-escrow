@@ -11,7 +11,8 @@ use solana_program::{
 
 use spl_token::state::Account as TokenAccount;
 
-use crate::{error::EscrowError, instruction::EscrowInstruction, state::Escrow};
+use crate::{error::EscrowError, instruction::EscrowInstruction, state::Escrow, state::Vault};
+use borsh::{BorshDeserialize, BorshSerialize};
 
 pub struct Processor;
 impl Processor {
@@ -20,15 +21,19 @@ impl Processor {
         accounts: &[AccountInfo],
         instruction_data: &[u8],
     ) -> ProgramResult {
-        let instruction = EscrowInstruction::unpack(instruction_data)?;
+        let instruction = EscrowInstruction::try_from_slice(instruction_data)?;
 
         match instruction {
-            EscrowInstruction::InitEscrow { amount } => {
+            EscrowInstruction::InitEscrow { amount_a, amount_b } => {
                 msg!("Instruction: InitEscrow");
-                Self::process_init_escrow(accounts, amount, program_id)
+                Self::process_init_escrow(accounts, amount_a, amount_b, program_id)
             }
-            EscrowInstruction::Exchange { amount } => {
-                msg!("Instruction: Exchange");
+            EscrowInstruction::Deposit { amount } => {
+                msg!("Instruction: Deposit");
+                Self::process_exchange(accounts, amount, program_id)
+            }
+            EscrowInstruction::Withdraw { amount } => {
+                msg!("Instruction: Withdraw");
                 Self::process_exchange(accounts, amount, program_id)
             }
         }
@@ -36,65 +41,73 @@ impl Processor {
 
     fn process_init_escrow(
         accounts: &[AccountInfo],
-        amount: u64,
+        amount_a: u64,
+        amount_b: u64,
         program_id: &Pubkey,
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
-        let initializer = next_account_info(account_info_iter)?;
+        // alice
+        let alice = next_account_info(account_info_iter)?;
 
-        if !initializer.is_signer {
+        // make alice always the payer for rent
+        if !alice.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
         }
 
-        let temp_token_account = next_account_info(account_info_iter)?;
+        // bob
+        let bob = next_account_info(account_info_iter)?;
+        // mints
+        let x_mint = next_account_info(account_info_iter)?;
+        let y_mint = next_account_info(account_info_iter)?;
+        // token program
+        let token_program = next_account_info(account_info_iter)?;
+        // system program
+        let system_program = next_account_info(account_info_iter)?;
+        // rent program
+        let rent_program = next_account_info(account_info_iter)?;
 
-        let token_to_receive_account = next_account_info(account_info_iter)?;
-        if *token_to_receive_account.owner != spl_token::id() {
-            return Err(ProgramError::IncorrectProgramId);
-        }
+        // create x_vault
+        let x_vault = Self::create_pda_vault([alice, x_mint, token_program, system_program, rent_program])
 
-        let escrow_account = next_account_info(account_info_iter)?;
-        let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
+        // create y_vault
+        let y_vault = Self::create_pda_vault([alice, y_mint, token_program, system_program, rent_program])
 
+        // create escrow
+        let escrow = Self::create_pda_escrow([alice, bob, x_vault, y_vault, system_program, rent_program], amount_a, amount_b)
+
+        let rent = &Rent::from_account_info(rent_program)?;
         if !rent.is_exempt(escrow_account.lamports(), escrow_account.data_len()) {
             return Err(EscrowError::NotRentExempt.into());
         }
 
-        let mut escrow_info = Escrow::unpack_unchecked(&escrow_account.data.borrow())?;
-        if escrow_info.is_initialized() {
-            return Err(ProgramError::AccountAlreadyInitialized);
-        }
-
-        escrow_info.is_initialized = true;
-        escrow_info.initializer_pubkey = *initializer.key;
-        escrow_info.temp_token_account_pubkey = *temp_token_account.key;
-        escrow_info.initializer_token_to_receive_account_pubkey = *token_to_receive_account.key;
-        escrow_info.expected_amount = amount;
-
-        Escrow::pack(escrow_info, &mut escrow_account.data.borrow_mut())?;
-        let (pda, _nonce) = Pubkey::find_program_address(&[b"escrow"], program_id);
-
-        let token_program = next_account_info(account_info_iter)?;
-        let owner_change_ix = spl_token::instruction::set_authority(
-            token_program.key,
-            temp_token_account.key,
-            Some(&pda),
-            spl_token::instruction::AuthorityType::AccountOwner,
-            initializer.key,
-            &[&initializer.key],
-        )?;
-
-        msg!("Calling the token program to transfer token account ownership...");
-        invoke(
-            &owner_change_ix,
-            &[
-                temp_token_account.clone(),
-                initializer.clone(),
-                token_program.clone(),
-            ],
-        )?;
-
         Ok(())
+    }
+
+    fn create_pda_vault(
+        accounts: &[AccountInfo],
+    ) -> AccountInfo {
+        let account_info_iter = &mut accounts.iter();
+        let alice = next_account_info(account_info_iter)?;
+        let mint = next_account_info(account_info_iter)?;
+        let token_program = next_account_info(account_info_iter)?;
+        let system_program = next_account_info(account_info_iter)?;
+        let rent_program = next_account_info(account_info_iter)?;
+
+        let (pda, bump) = Pubkey::find_program_address(&[b"vault"], mint.key);
+        let vault: Vault = Vault { mint: mint.key, amount: 0, bump: bump};
+
+        let space = 41;
+        solana_program::program::invoke(
+            &system_instruction::create_account(
+                alice.key, //from_pubkey
+                pda, //to_pubkey
+                required_lamports, //lamports
+                space, //space
+                token_program_info.key, // owner
+            ),
+            &[alice.clone(), pda.clone(), system_program.clone()],
+        )?;
+
     }
 
     fn process_exchange(
