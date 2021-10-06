@@ -23,3 +23,10 @@ pub struct Escrow {
     pub bump: u8,
 }
 
+impl Vault {
+    pub const LEN: usize = 41;
+}
+
+impl Escrow {
+    pub const LEN: usize = 146;
+}
