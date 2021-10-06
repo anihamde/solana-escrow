@@ -11,6 +11,8 @@ from solana.sysvar import SYSVAR_RENT_PUBKEY
 
 import time
 
+ID = "A4vEBwVMoEZ8j4gthtMnm3MLgKtZoSrw7kYGq4KotE2Q"
+
 parser = argparse.ArgumentParser(description='Add Questionnaire struct on-chain')
 parser.add_argument('--size_A', dest='size_A', help='get size of A', type=float)
 parser.add_argument('--size_B', dest='size_B', help='get size of B', type=float)
@@ -23,13 +25,29 @@ Bob = Keypair()
 
 temp = Keypair()
 
+X_A = Keypair()
 Y_A = Keypair()
+X_B = Keypair()
+Y_B = Keypair()
 
 escrow_MD = Keypair()
 
-Rent = 
+Rent = Keypair()
 
-token_program =
+token_program = Keypair()
+
+program_keypair = Keypair(ID) ### TODO: from ID
+
+
+
+X_vault_pk, _ = .find_program_address(["X_vault"], ID)
+instruction = create_account(CreateAccountParams(from_pubkey=Alice.public_key, new_account_pubkey=X_vault_pk.public_key, lamports=3800000, space=416, program_id=base58.b58decode(ID)))
+
+Y_vault_pk, _ = .find_program_address(["Y_vault"])
+instruction = create_account(CreateAccountParams(from_pubkey=Alice.public_key, new_account_pubkey=Y_vault_pk.public_key, lamports=3800000, space=416, program_id=base58.b58decode(ID)))
+
+escrow_MD_pk, _ = .find_program_address(["escrow_MD"])
+instruction = create_account(CreateAccountParams(from_pubkey=Alice.public_key, new_account_pubkey=escrow_MD_pk.public_key, lamports=3800000, space=416, program_id=base58.b58decode(ID)))
 
 
 
