@@ -72,14 +72,16 @@ impl Processor {
         // rent program
         let rent_program = next_account_info(account_info_iter)?;
 
+        let x_seed = x_mint.key.to_bytes(); 
+
         // create x_vault
-        Self::create_pda_vault(accounts, program_id, b"x");
+        Self::create_pda_vault(accounts, program_id, &x_seed);
 
         // create y_vault
-        Self::create_pda_vault(accounts, program_id, b"y");
+        //Self::create_pda_vault(accounts, program_id, b"y");
 
         // create escrow
-        Self::create_pda_escrow(accounts, program_id, amount_a, amount_b);
+        //Self::create_pda_escrow(accounts, program_id, amount_a, amount_b);
 
         Ok(())
     }
@@ -113,10 +115,13 @@ impl Processor {
 
         let mut vault = x_vault;
         let mut mint = x_mint;
-        if seed == b"y" {
+        if seed == &y_mint.key.to_bytes() {
             vault = y_vault;
             mint = y_mint;
         }
+
+        let (_, bump) = Pubkey::find_program_address(&[seed], program_id);
+        let seeds_with_bump = &[seed, &[bump]];
 
         // rent and space
         let space = Vault::LEN;
@@ -125,7 +130,8 @@ impl Processor {
             .minimum_balance(space)
             .max(1)
             .saturating_sub(vault.lamports());
-        invoke(
+        msg!("Got to invoke");
+        invoke_signed(
             &system_instruction::create_account(
                 alice.key, //from_pubkey
                 vault.key, //to_pubkey
@@ -133,16 +139,19 @@ impl Processor {
                 space.try_into().unwrap(), //space
                 token_program.key, // owner
             ),
-            &[alice.clone(), vault.clone(), system_program.clone()],
+            &[alice.clone(), vault.clone(), token_program.clone()],
+            &[seeds_with_bump],
         )?;
+        msg!("Done with invoke");
 
-        // get bump, write data to struct
-        let (_, bump) = Pubkey::find_program_address(&[seed], program_id);
-        let mut vault_data = Vault::try_from_slice(&vault.data.borrow_mut())?;
-        vault_data.mint = *mint.key;
-        vault_data.amount = 0;
-        vault_data.bump = bump;
-        vault_data.serialize(&mut *vault.data.borrow_mut())?;
+        // initialize account from spl token cpi
+
+        // write data to struct
+        // let mut vault_data = Vault::try_from_slice(&vault.data.borrow_mut())?;
+        // vault_data.mint = *mint.key;
+        // vault_data.amount = 0;
+        // vault_data.bump = bump;
+        // vault_data.serialize(&mut *vault.data.borrow_mut())?;
 
         Ok(())
     }
