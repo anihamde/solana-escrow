@@ -4,18 +4,17 @@ use solana_program::program_error::ProgramError;
 
 #[derive(Error, Debug, Copy, Clone)]
 pub enum EscrowError {
-    /// Invalid instruction
-    #[error("Invalid Instruction")]
-    InvalidInstruction,
-    /// Not Rent Exempt
-    #[error("Not Rent Exempt")]
-    NotRentExempt,
+    #[error("Invalid Party")]
+    InvalidParty,
     /// Expected Amount Mismatch
     #[error("Expected Amount Mismatch")]
     ExpectedAmountMismatch,
-    /// Amount Overflow
-    #[error("Amount Overflow")]
-    AmountOverflow,
+    #[error("Own Escrow Deposit Incomplete")]
+    OwnEscrowDepositIncomplete,
+    #[error("Counterpary Escrow Deposit Incomplete")]
+    CounterpartyEscrowDepositIncomplete,
+    #[error("Already Deposited")]
+    AlreadyDeposited,
 }
 
 impl From<EscrowError> for ProgramError {

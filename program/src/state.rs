@@ -14,8 +14,10 @@ pub struct Escrow {
     pub vault_y: Pubkey,
     pub state: u8,
     pub bump: u8,
+    pub bump_vault_x: u8,
+    pub bump_vault_y: u8,
 }
 
 impl Escrow {
-    pub const LEN: usize = 146;
+    pub const LEN: usize = 148;
 }

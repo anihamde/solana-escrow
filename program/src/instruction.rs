@@ -7,9 +7,9 @@ pub enum EscrowInstruction {
         amount_a: u64,
         amount_b: u64, 
     },
-    // Deposit {
-    //     amount: u64,
-    // },
+    Deposit {
+        amount: u64,
+    },
     // Withdraw {
     //     amount: u64,
     // },
