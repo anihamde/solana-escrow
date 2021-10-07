@@ -8,10 +8,15 @@ use {
         pubkey::Pubkey,
         system_instruction,
         sysvar::{rent::Rent, Sysvar},
+        program_pack::{IsInitialized, Pack}
     },
     std::convert::TryInto,
+    spl_token::{
+        instruction::initialize_account,
+        state::Account,
+    },
 };
-use crate::{instruction::EscrowInstruction, state::Escrow, state::Vault};
+use crate::{instruction::EscrowInstruction, state::Escrow};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 pub struct Processor;
@@ -72,16 +77,17 @@ impl Processor {
         // rent program
         let rent_program = next_account_info(account_info_iter)?;
 
-        let x_seed = x_mint.key.to_bytes(); 
+        let x_seed = x_mint.key.as_ref(); 
+        let y_seed = y_mint.key.as_ref();
 
         // create x_vault
         Self::create_pda_vault(accounts, program_id, &x_seed);
 
         // create y_vault
-        //Self::create_pda_vault(accounts, program_id, b"y");
+        Self::create_pda_vault(accounts, program_id, &y_seed);
 
         // create escrow
-        //Self::create_pda_escrow(accounts, program_id, amount_a, amount_b);
+        Self::create_pda_escrow(accounts, program_id, amount_a, amount_b);
 
         Ok(())
     }
@@ -89,14 +95,14 @@ impl Processor {
     fn create_pda_vault(
         accounts: &[AccountInfo],
         program_id: &Pubkey,
-        seed: &[u8],
+        vault_seed: &[u8],
     ) -> ProgramResult {
         // get accounts
         let account_info_iter = &mut accounts.iter();
         // alice
         let alice = next_account_info(account_info_iter)?;
         // bob
-        let _ = next_account_info(account_info_iter)?;
+        let bob = next_account_info(account_info_iter)?;
         // mints
         let x_mint = next_account_info(account_info_iter)?;
         let y_mint = next_account_info(account_info_iter)?;
@@ -104,7 +110,7 @@ impl Processor {
         let x_vault = next_account_info(account_info_iter)?;
         let y_vault = next_account_info(account_info_iter)?;
         // escrow 
-        let _ = next_account_info(account_info_iter)?;
+        let escrow = next_account_info(account_info_iter)?;
 
         // token program
         let token_program = next_account_info(account_info_iter)?;
@@ -115,22 +121,24 @@ impl Processor {
 
         let mut vault = x_vault;
         let mut mint = x_mint;
-        if seed == &y_mint.key.to_bytes() {
+        if vault_seed == y_mint.key.as_ref() {
             vault = y_vault;
             mint = y_mint;
         }
 
-        let (_, bump) = Pubkey::find_program_address(&[seed], program_id);
-        let seeds_with_bump = &[seed, &[bump]];
+        // seeds
+        let alice_seed = alice.key.as_ref();
+        let bob_seed = bob.key.as_ref();
+        let (_, bump) = Pubkey::find_program_address(&[vault_seed, alice_seed, bob_seed], program_id);
+        let seeds_with_bump = &[vault_seed, alice_seed, bob_seed, &[bump]];
 
         // rent and space
-        let space = Vault::LEN;
+        let space = Account::LEN;
         let rent = &Rent::from_account_info(rent_program)?;
         let required_lamports = rent
             .minimum_balance(space)
             .max(1)
             .saturating_sub(vault.lamports());
-        msg!("Got to invoke");
         invoke_signed(
             &system_instruction::create_account(
                 alice.key, //from_pubkey
@@ -139,19 +147,30 @@ impl Processor {
                 space.try_into().unwrap(), //space
                 token_program.key, // owner
             ),
-            &[alice.clone(), vault.clone(), token_program.clone()],
+            &[alice.clone(), vault.clone(), system_program.clone()],
             &[seeds_with_bump],
         )?;
-        msg!("Done with invoke");
+        msg!("Done with creating account");
 
-        // initialize account from spl token cpi
+        // initialize account from token
+        invoke(
+            &initialize_account(
+                token_program.key,
+                vault.key,
+                mint.key,
+                escrow.key,
+            )?,
+            &[vault.clone(), mint.clone(), escrow.clone(), rent_program.clone(), token_program.clone()],
+        )?;
+        msg!("Done with initializing");
 
         // write data to struct
-        // let mut vault_data = Vault::try_from_slice(&vault.data.borrow_mut())?;
-        // vault_data.mint = *mint.key;
-        // vault_data.amount = 0;
-        // vault_data.bump = bump;
-        // vault_data.serialize(&mut *vault.data.borrow_mut())?;
+        let mut vault_data = Account::unpack_from_slice(&vault.data.borrow_mut())?;
+        vault_data.mint = *mint.key;
+        vault_data.amount = 0;
+        vault_data.owner = *escrow.key;
+        msg!("Done writing data");
+        vault_data.pack_into_slice(&mut vault.data.borrow_mut());
 
         Ok(())
     }
@@ -169,8 +188,8 @@ impl Processor {
         // bob
         let bob = next_account_info(account_info_iter)?;
         // mints
-        let _ = next_account_info(account_info_iter)?;
-        let _ = next_account_info(account_info_iter)?;
+        let x_mint = next_account_info(account_info_iter)?;
+        let y_mint = next_account_info(account_info_iter)?;
         // vaults
         let x_vault = next_account_info(account_info_iter)?;
         let y_vault = next_account_info(account_info_iter)?;
@@ -180,9 +199,17 @@ impl Processor {
         // token program
         let _ = next_account_info(account_info_iter)?;
         // system program
-        let _ = next_account_info(account_info_iter)?;
+        let system_program = next_account_info(account_info_iter)?;
         // rent program
         let rent_program = next_account_info(account_info_iter)?;
+
+        // seeds
+        let alice_seed = alice.key.as_ref();
+        let bob_seed = bob.key.as_ref();
+        let x_seed= x_mint.key.as_ref();
+        let y_seed = y_mint.key.as_ref();
+        let (_, bump) = Pubkey::find_program_address(&[x_seed, y_seed, alice_seed, bob_seed], program_id);
+        let seeds_with_bump = &[x_seed, y_seed, alice_seed, bob_seed, &[bump]];
 
         // rent and space
         let space = Escrow::LEN;
@@ -191,8 +218,7 @@ impl Processor {
             .minimum_balance(space)
             .max(1)
             .saturating_sub(escrow.lamports());
-
-        invoke(
+        invoke_signed(
             &system_instruction::create_account(
                 alice.key, //from_pubkey
                 escrow.key, //to_pubkey
@@ -200,11 +226,12 @@ impl Processor {
                 space.try_into().unwrap(), //space
                 program_id, // owner
             ),
-            &[alice.clone(), escrow.clone()],
+            &[alice.clone(), escrow.clone(), system_program.clone()],
+            &[seeds_with_bump],
         )?;
+        msg!("Done with creating account!!!!!!");
 
         // get bump, write data to struct
-        let (_, bump) = Pubkey::find_program_address(&[b"escrow"], program_id);
         let mut escrow_data = Escrow::try_from_slice(&escrow.data.borrow_mut())?;
         escrow_data.party_a = *alice.key;
         escrow_data.party_b = *bob.key;
@@ -215,6 +242,7 @@ impl Processor {
         escrow_data.state = 0;
         escrow_data.bump = bump;
         escrow_data.serialize(&mut *escrow.data.borrow_mut())?;
+        let mut new_escrow = Escrow::try_from_slice(&escrow.data.borrow_mut())?;
 
         Ok(())
     }

@@ -5,13 +5,6 @@ use solana_program::{
 use borsh::{BorshDeserialize, BorshSerialize};
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
-pub struct Vault {
-    pub mint: Pubkey,
-    pub amount: u64,
-    pub bump: u8,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct Escrow {
     pub party_a: Pubkey,
     pub party_b: Pubkey,
@@ -21,10 +14,6 @@ pub struct Escrow {
     pub vault_y: Pubkey,
     pub state: u8,
     pub bump: u8,
-}
-
-impl Vault {
-    pub const LEN: usize = 41;
 }
 
 impl Escrow {
