@@ -275,17 +275,19 @@ impl Processor {
         let escrow = next_account_info(account_info_iter)?;
         // token program
         let token_program = next_account_info(account_info_iter)?;
-
+        // ata
+        let ata = next_account_info(account_info_iter)?;
+        // associated_token_program
+        let atp = next_account_info(account_info_iter)?;
+        let associated_token_program_key = atp.key;
 
 
         // seeds
         let mut escrow_data = Escrow::try_from_slice(&escrow.data.borrow_mut())?;
         let alice_seed = escrow_data.party_a.as_ref();
         let bob_seed = escrow_data.party_b.as_ref();
-        if vault.key == escrow_data.vault_x {
-            let bump_vault = escrow_data.bump_vault_x;
-        }
-        else if vault.key == escrow_data.vault_y {
+        let bump_vault = escrow_data.bump_vault_x;
+        if *vault.key == escrow_data.vault_y {
             let bump_vault = escrow_data.bump_vault_y;
         }
 
@@ -298,38 +300,42 @@ impl Processor {
         // #2 is vault the vault of dep: this can be taken care of via associated_token_program
         // #3 amount exactly equal to amount_A or amount_B: check manually
         if *depositor.key == escrow_data.party_a {
-            if amount != escrow_data.size_A {
-                return EscrowError::ExpectedAmountMismatch;
+            if amount != escrow_data.size_a {
+                return Err(EscrowError::ExpectedAmountMismatch.into());
             }
 
             if escrow_data.state == 1 || escrow_data.state == 3 {
-                return EscrowError::AlreadyDeposited;
+                return Err(EscrowError::AlreadyDeposited.into());
             }
         }
         else if *depositor.key == escrow_data.party_b {
-            if amount != escrow_data.size_B {
-                return EscrowError::ExpectedAmountMismatch;
+            if amount != escrow_data.size_b {
+                return Err(EscrowError::ExpectedAmountMismatch.into());
             }
 
             if escrow_data.state == 2 || escrow_data.state == 3 {
-                return EscrowError::AlreadyDeposited;
+                return Err(EscrowError::AlreadyDeposited.into());
             }
         }
-        else {return EscrowError::InvalidParty}
+        else {return Err(EscrowError::InvalidParty.into());}
 
 
 
-        let ata,bump_ata = get_associated_token_address_and_bump_seed_internal(
-                        depositor.key,
-                        mintkey,
-                        program_id,
-                        token_program.key,
-                    );
+        // let (ata, bump_ata) = spl_associated_token_account::get_associated_token_address_and_bump_seed(
+        //                 depositor.key,
+        //                 mintkey,
+        //                 program_id,
+        //                 token_program.key,
+        //             );
+        let (_, bump_ata) = Pubkey::find_program_address(&[depositor.key.as_ref(), token_program.key.as_ref(), mintkey.as_ref()], associated_token_program_key);
+        let seeds_with_bump_ata = &[depositor.key.as_ref(), token_program.key.as_ref(), mintkey.as_ref(), &[bump_ata]];
+
+
         msg!("ATA KEY AND BUMP BELOW");
         msg!("{}",ata.key);
         msg!("{}",bump_ata);
 
-        let seeds_with_bump_ata = &[depositor.key.as_ref(), mintkey.as_ref(), &[bump_ata]];
+        // let seeds_with_bump_ata = &[depositor.key.as_ref(), mintkey.as_ref(), &[bump_ata]];
         let seeds_with_bump_vault = &[vault.key.as_ref(), alice_seed, bob_seed, &[bump_vault]];
 
 
@@ -339,14 +345,15 @@ impl Processor {
                 ata.key,
                 vault.key,
                 depositor.key,
-                [depositor.key]
-            ),
+                &[depositor.key],
+                amount
+            )?,
             &[ata.clone(), vault.clone(), depositor.clone(), token_program.clone()],
             &[seeds_with_bump_ata, seeds_with_bump_vault],
         )?;
 
 
-        if depositor.key == escrow_data.party_a {
+        if *depositor.key == escrow_data.party_a {
             if escrow_data.state == 0 {
                 escrow_data.state = 1;
             }
@@ -355,7 +362,7 @@ impl Processor {
             }
         }
 
-        else if depositor.key == escrow_data.party_b {
+        else if *depositor.key == escrow_data.party_b {
             if escrow_data.state == 0 {
                 escrow_data.state = 2;
             }
