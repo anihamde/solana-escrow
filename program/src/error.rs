@@ -15,6 +15,12 @@ pub enum EscrowError {
     CounterpartyEscrowDepositIncomplete,
     #[error("Already Deposited")]
     AlreadyDeposited,
+    #[error("Escrow is locked")]
+    EscrowLocked,
+    #[error("Escrow is empty")]
+    EmptyEscrow,
+    #[error("Already withdrawn")]
+    AlreadyWithdrawn,
 }
 
 impl From<EscrowError> for ProgramError {
