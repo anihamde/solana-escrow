@@ -80,11 +80,17 @@ impl Processor {
         let x_seed = x_mint.key.as_ref(); 
         let y_seed = y_mint.key.as_ref();
 
+        if escrow.data_len() > 0 {
+            let mut escrow_data = Escrow::try_from_slice(&escrow.data.borrow_mut())?;
+            msg!("{}", escrow_data.state);
+            return Ok(());
+        }
+
         // create x_vault
-        Self::create_pda_vault(accounts, program_id, &x_seed);
+        Self::create_pda_vault(accounts, program_id, x_seed);
 
         // create y_vault
-        Self::create_pda_vault(accounts, program_id, &y_seed);
+        Self::create_pda_vault(accounts, program_id, y_seed);
 
         // create escrow
         Self::create_pda_escrow(accounts, program_id, amount_a, amount_b);
@@ -231,8 +237,10 @@ impl Processor {
         )?;
 
         // get bump, write data to struct
-        let (_, bump_vault_x) = Pubkey::find_program_address(&[x_seed, alice_seed, bob_seed], program_id);
-        let (_, bump_vault_y) = Pubkey::find_program_address(&[y_seed, alice_seed, bob_seed], program_id);
+        let x_mint_seed = x_mint.key.as_ref();
+        let y_mint_seed = y_mint.key.as_ref();
+        let (_, bump_vault_x) = Pubkey::find_program_address(&[x_mint_seed, alice_seed, bob_seed], program_id);
+        let (_, bump_vault_y) = Pubkey::find_program_address(&[y_mint_seed, alice_seed, bob_seed], program_id);
 
         let mut escrow_data = Escrow::try_from_slice(&escrow.data.borrow_mut())?;
         escrow_data.party_a = *alice.key;
@@ -275,16 +283,15 @@ impl Processor {
         // seeds
         msg!("Getting escrow data");
         let mut escrow_data = Escrow::try_from_slice(&escrow.data.borrow_mut())?;
-        msg!("Made try from slice");
         let alice_seed = escrow_data.party_a.as_ref();
         let bob_seed = escrow_data.party_b.as_ref();
-        let bump_vault = escrow_data.bump_vault_x;
+        let mut bump_vault = escrow_data.bump_vault_x;
         if *vault.key == escrow_data.vault_y {
-            let bump_vault = escrow_data.bump_vault_y;
+            bump_vault = escrow_data.bump_vault_y;
         }
 
         // get mint
-        let mut vault_data = Account::unpack_from_slice(&vault.data.borrow_mut())?;
+        let vault_data = Account::unpack_from_slice(&vault.data.borrow_mut())?;
         let mintkey = &vault_data.mint;
 
         // val checks
@@ -311,8 +318,6 @@ impl Processor {
         }
         else {return Err(EscrowError::InvalidParty.into());}
 
-
-
         // let (ata, bump_ata) = spl_associated_token_account::get_associated_token_address_and_bump_seed(
         //                 depositor.key,
         //                 mintkey,
@@ -324,28 +329,40 @@ impl Processor {
 
 
         msg!("ATA KEY AND BUMP BELOW");
-        // msg!("{}",ata.key);
+        //msg!("{}",ata.key);
         // msg!("{}",bump_ata);
-        // msg!("{}",ata_pda);
+        //msg!("{}",ata_pda);
 
-        // let seeds_with_bump_ata = &[depositor.key.as_ref(), mintkey.as_ref(), &[bump_ata]];
-        let (vault_pda, bump_for_vault) = Pubkey::find_program_address(&[mintkey.as_ref(), alice_seed, bob_seed], program_id);
-        let seeds_with_bump_vault = &[mintkey.as_ref(), alice_seed, bob_seed, &[bump_vault]];
+        // let (_, bump_for_vault) = Pubkey::find_program_address(&[mintkey.as_ref(), alice_seed, bob_seed], program_id);
+        // let seeds_with_bump_vault = &[mintkey.as_ref(), alice_seed, bob_seed, &[bump_vault]];
 
         //msg!("{}", depositor.key);
-        invoke_signed(
+        // invoke_signed(
+        //     &transfer(
+        //         token_program.key, 
+        //         ata.key,
+        //         vault.key,
+        //         depositor.key,
+        //         &[],
+        //         amount,
+        //     )?,
+        //     &[ata.clone(), vault.clone(), depositor.clone(), token_program.clone()],
+        //     &[seeds_with_bump_ata],
+        // )?;
+
+        invoke(
             &transfer(
                 token_program.key, 
                 ata.key,
                 vault.key,
                 depositor.key,
-                &[depositor.key],
+                &[],
                 amount,
             )?,
             &[ata.clone(), vault.clone(), depositor.clone(), token_program.clone()],
-            &[seeds_with_bump_ata, seeds_with_bump_vault],
         )?;
 
+        msg!("Done with invoke");
 
         if *depositor.key == escrow_data.party_a {
             if escrow_data.state == 0 {
@@ -354,6 +371,7 @@ impl Processor {
             else if escrow_data.state == 2 {
                 escrow_data.state = 3;
             }
+            msg!("Alice deposit");
         }
 
         else if *depositor.key == escrow_data.party_b {
@@ -363,6 +381,7 @@ impl Processor {
             else if escrow_data.state == 1 {
                 escrow_data.state = 3;
             }
+            msg!("Bob deposit");
         }
 
         escrow_data.serialize(&mut *escrow.data.borrow_mut())?;
@@ -397,7 +416,7 @@ impl Processor {
         let mut escrow_data = Escrow::try_from_slice(&escrow.data.borrow_mut())?;
 
         // get mint
-        let mut vault_data = Account::unpack_from_slice(&vault.data.borrow_mut())?;
+        let vault_data = Account::unpack_from_slice(&vault.data.borrow_mut())?;
         let mintkey = &vault_data.mint;
 
         // val checks
@@ -455,8 +474,8 @@ impl Processor {
             return Err(EscrowError::AlreadyWithdrawn.into());
         }
 
-        let (_, bump_ata) = Pubkey::find_program_address(&[withdrawer.key.as_ref(), token_program.key.as_ref(), mintkey.as_ref()], associated_token_program_key);
-        let seeds_with_bump_ata = &[withdrawer.key.as_ref(), token_program.key.as_ref(), mintkey.as_ref(), &[bump_ata]];
+        //let (_, bump_ata) = Pubkey::find_program_address(&[withdrawer.key.as_ref(), token_program.key.as_ref(), mintkey.as_ref()], associated_token_program_key);
+        //let seeds_with_bump_ata = &[withdrawer.key.as_ref(), token_program.key.as_ref(), mintkey.as_ref(), &[bump_ata]];
 
 
         //msg!("ATA KEY AND BUMP BELOW");
@@ -472,8 +491,8 @@ impl Processor {
         // get seeds for escrow
         let seeds_with_bump_escrow = &[x_seed, y_seed, alice_seed, bob_seed, &[bump_escrow]];
 
-        let (_, bump_for_vault) = Pubkey::find_program_address(&[mintkey.as_ref(), alice_seed, bob_seed], program_id);
-        let seeds_with_bump_vault = &[mintkey.as_ref(), alice_seed, bob_seed, &[bump_for_vault]];
+        //let (_, bump_for_vault) = Pubkey::find_program_address(&[mintkey.as_ref(), alice_seed, bob_seed], program_id);
+        //let seeds_with_bump_vault = &[mintkey.as_ref(), alice_seed, bob_seed, &[bump_for_vault]];
 
         invoke_signed(
             &transfer(
@@ -485,7 +504,7 @@ impl Processor {
                 amount,
             )?,
             &[vault.clone(), ata.clone(), escrow.clone(), token_program.clone()],
-            &[seeds_with_bump_vault, seeds_with_bump_ata, seeds_with_bump_escrow],
+            &[seeds_with_bump_escrow],
         )?;
 
         // state transitions
